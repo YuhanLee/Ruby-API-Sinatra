@@ -45,93 +45,78 @@ class BookSerializer
 end
 
 # Endpoints
-get '/ ' do
+get '/' do
   'Welcome to BookList!'
 end
 
 namespace '/api/v1' do
-	before do
+
+  before do
     content_type 'application/json'
   end
 
-
-	#helpers 
-	helpers do
+  helpers do
     def base_url
-      @base_url ||= "#{request.env['rack.url_scheme']}://{request.env['HTTP_HOST']}"
+      @base_url ||= "#{request.env['rack.url_scheme']}://#{request.env['HTTP_HOST']}"
     end
 
     def json_params
       begin
         JSON.parse(request.body.read)
       rescue
-        halt 400, { message:'Invalid JSON' }.to_json
+        halt 400, { message: 'Invalid JSON' }.to_json
       end
+    end
+
+    def book
+      @book ||= Book.where(id: params[:id]).first
+    end
+
+    def halt_if_not_found!
+      halt(404, { message: 'Book Not Found'}.to_json) unless book
+    end
+
+    def serialize(book)
+      BookSerializer.new(book).to_json
     end
   end
 
-	# instead of having to find book from param id each time
-	def book
-		@book ||= Book.where(id: params[:id]).first
-	end
-
-	# less redundancy when book not found in show and update
-	def halt_if_not_found!
-		halt(404, { message:'Book Not Found'}.to_json) unless book
-	end
-
-	def serialize(book)
-		BookSerializer.new(book).to_json
-	end
-
-	# Index 
-	get '/books' do
+	# Index
+  get '/books' do
     books = Book.all
+
     [:title, :isbn, :author].each do |filter|
       books = books.send(filter, params[filter]) if params[filter]
     end
 
-    # We just change this from books.to_json to the following
     books.map { |book| BookSerializer.new(book) }.to_json
-	end
-
-	# Show 
-	get '/books/:id ' do |id|
-    book = Book.where(id: id).first
-    halt(404, { message:'Book Not Found'}.to_json) unless book #unless book is found 
-    BookSerializer.new(book).to_json
   end
-	
 
-	# Create 
-	post '/books ' do
+	# Show
+  get '/books/:id' do |id|
+    halt_if_not_found!
+    serialize(book)
+  end
+
+	# Create
+  post '/books' do
     book = Book.new(json_params)
-    if book.save
-      response.headers['Location'] = "#{base_url}/api/v1/books/#{book.id}"
-      status 201
-    else
-      status 422
-      body BookSerializer.new(book).to_json
-    end
-	end
-	
-	# Update, aka PATCH
-	patch '/books/:id ' do |id|
-    book = Book.where(id: id).first
-    halt(404, { message:'Book Not Found'}.to_json) unless book
-    if book.update_attributes(json_params)
-      BookSerializer.new(book).to_json
-    else
-      status 422
-      body BookSerializer.new(book).to_json
-    end
-	end
-	
-	# Delete/ Destroy 
-	delete '/books/:id' do |id|
-    book = Book.where(id: id).first
+    halt 422, serialize(book) unless book.save
+    response.headers['Location'] = "#{base_url}/api/v1/books/#{book.id}"
+    status 201
+  end
+
+	# Update
+  patch '/books/:id' do |id|
+    halt_if_not_found!
+    halt 422, serialize(book) unless book.update_attributes(json_params)
+    serialize(book)
+  end
+
+	# Destroy 
+  delete '/books/:id' do |id|
     book.destroy if book
     status 204
-	end
-	
+  end
+
 end
